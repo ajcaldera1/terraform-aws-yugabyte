@@ -57,6 +57,7 @@ if (( $idx < $RF )); then
   exit 1
 fi
 echo "Master addresses: $YB_MASTER_ADDRESSES"
+MASTER_ADDR_ARRAY=($master_ips)
 
 
 ###############################################################################
@@ -70,6 +71,17 @@ do
   ssh -o "StrictHostKeyChecking no" -i ${SSH_KEY_PATH} ${SSH_USER}@$node "$MASTER_CONF_CMD ; $TSERVER_CONF_CMD"
 done
 
+###############################################################################
+# Setup YSQL proxies across all nodes
+###############################################################################
+echo "Enabling YSQL..."
+TSERVER_YSQL_PROXY_CMD="echo '--start_pgsql_proxy' >> ${YB_HOME}/tserver/conf/server.conf"
+idx=0
+for node in $SSH_IPS
+do
+  ssh -o "StrictHostKeyChecking no" -i ${SSH_KEY_PATH} ${SSH_USER}@$node "$TSERVER_YSQL_PROXY_CMD ; echo '--pgsql_proxy_bind_address=${MASTER_ADDR_ARRAY[idx]}:5433' >> ${YB_HOME}/tserver/conf/server.conf"
+  idx=`expr $idx + 1`
+done
 
 ###############################################################################
 # Start the masters.
@@ -79,7 +91,7 @@ MASTER_EXE=${YB_HOME}/master/bin/yb-master
 MASTER_OUT=${YB_HOME}/master/master.out
 MASTER_ERR=${YB_HOME}/master/master.err
 MASTER_START_CMD="nohup ${MASTER_EXE} --flagfile ${YB_HOME}/master/conf/server.conf >>${MASTER_OUT} 2>>${MASTER_ERR} </dev/null &"
-for node in $master_ips
+for node in $SSH_IPS
 do
   ssh -o "StrictHostKeyChecking no" -i ${SSH_KEY_PATH} ${SSH_USER}@$node "$MASTER_START_CMD"
 done
@@ -98,3 +110,14 @@ for node in $SSH_IPS
 do
   ssh -o "StrictHostKeyChecking no" -i ${SSH_KEY_PATH} ${SSH_USER}@$node "$TSERVER_START_CMD"
 done
+
+###############################################################################
+# Run initdb on one of the nodes
+###############################################################################
+SSH_IPS_array=($SSH_IPS)
+echo "Initializing YSQL on node ${MASTER_ADDR_ARRAY[1]} via initdb..."
+
+INITDB_CMD="YB_ENABLED_IN_POSTGRES=1 FLAGS_pggate_master_addresses=${YB_MASTER_ADDRESSES} ${YB_HOME}/tserver/postgres/bin/initdb -D /tmp/yb_pg_initdb_tmp_data_dir -U postgres >>${YB_HOME}/tserver/ysql.out"
+ssh -o "StrictHostKeyChecking no" -i ${SSH_KEY_PATH} ${SSH_USER}@${SSH_IPS_array[1]} "$INITDB_CMD"
+echo "YSQL initialization complete."
+

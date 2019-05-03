@@ -27,6 +27,7 @@
 
 data "aws_ami" "yugabyte_ami" {
   most_recent = true
+  owners      = ["amazon"]
 
   filter {
     name = "name"
@@ -76,6 +77,12 @@ resource "aws_security_group" "yugabyte" {
   ingress {
     from_port = 9042
     to_port   = 9042
+    protocol  = "tcp"
+    self      = true
+  }
+  ingress {
+    from_port = 5433
+    to_port   = 5433
     protocol  = "tcp"
     self      = true
   }
